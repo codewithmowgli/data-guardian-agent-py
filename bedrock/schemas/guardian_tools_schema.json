@@ -1,0 +1,309 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Data Guardian Agent Tools",
+    "description": "Tools used by the Lucid Data Guardian Agent for Salesforce sync, validation, audit, and notification",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/fetch_salesforce_record": {
+      "get": {
+        "summary": "Fetch current record from Salesforce by object type and entity ID",
+        "description": "Returns the current Salesforce state for the given entity. Use this before conflict detection.",
+        "operationId": "fetch_salesforce_record",
+        "parameters": [
+          {
+            "name": "object_type",
+            "in": "query",
+            "description": "Salesforce object type: LEAD, ORDER, INVOICE, SUBSCRIPTION, VEHICLE_CONFIG",
+            "required": true,
+            "schema": { "type": "string", "enum": ["LEAD", "ORDER", "INVOICE", "SUBSCRIPTION", "VEHICLE_CONFIG"] }
+          },
+          {
+            "name": "entity_id",
+            "in": "query",
+            "description": "The entity identifier (e.g. LEAD-001, ORDER-202)",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current Salesforce record",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "found":       { "type": "boolean" },
+                    "sfRecordId":  { "type": "string" },
+                    "status":      { "type": "string" },
+                    "lastModifiedAt": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sync_to_salesforce": {
+      "post": {
+        "summary": "Upsert an approved record into Salesforce",
+        "description": "Sync the incoming payload to Salesforce after the agent approves it. Only call for APPROVE decisions.",
+        "operationId": "sync_to_salesforce",
+        "parameters": [
+          {
+            "name": "object_type",
+            "in": "query",
+            "description": "Salesforce object type: LEAD, ORDER, INVOICE, SUBSCRIPTION, VEHICLE_CONFIG",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "entity_id",
+            "in": "query",
+            "description": "The entity identifier",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "payload_json",
+            "in": "query",
+            "description": "The validated payload JSON to upsert",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sync result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success":    { "type": "boolean" },
+                    "sfRecordId": { "type": "string" },
+                    "message":    { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/validate_payload": {
+      "post": {
+        "summary": "Validate incoming payload against Salesforce schema and Lucid business rules",
+        "description": "Returns validation result with errors and warnings. Always call this before conflict detection.",
+        "operationId": "validate_payload",
+        "parameters": [
+          {
+            "name": "source_system",
+            "in": "query",
+            "description": "The source system sending the event: PARTNER_PORTAL, LUCID_COM, SUBSCRIPTION_APP, LUCID_FINANCE, SAP",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "entity_type",
+            "in": "query",
+            "description": "The type of entity: LEAD, ORDER, INVOICE, SUBSCRIPTION, VEHICLE_CONFIG",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "payload_json",
+            "in": "query",
+            "description": "The raw incoming payload as JSON string",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Validation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "valid":    { "type": "boolean" },
+                    "errors":   { "type": "array", "items": { "type": "string" } },
+                    "warnings": { "type": "array", "items": { "type": "string" } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/detect_conflicts": {
+      "post": {
+        "summary": "Detect field-level conflicts between incoming data and current Salesforce record",
+        "description": "Compares incoming payload against SF snapshot and returns conflict report with severity.",
+        "operationId": "detect_conflicts",
+        "parameters": [
+          {
+            "name": "current_sf_record_json",
+            "in": "query",
+            "description": "Current Salesforce record as JSON string (from fetch_salesforce_record)",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "incoming_payload_json",
+            "in": "query",
+            "description": "Incoming event payload as JSON string",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Conflict report",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "hasConflicts":  { "type": "boolean" },
+                    "conflictCount": { "type": "integer" },
+                    "severity":      { "type": "string", "enum": ["NONE", "LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+                    "conflicts":     { "type": "array", "items": { "type": "string" } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/create_audit_entry": {
+      "post": {
+        "summary": "Create a full audit log entry with LLM reasoning trace and final decision",
+        "description": "Always call this for every processed event — required for compliance and traceability.",
+        "operationId": "create_audit_entry",
+        "parameters": [
+          { "name": "event_id",        "in": "query", "required": true,  "schema": { "type": "string" } },
+          { "name": "source_system",   "in": "query", "required": true,  "schema": { "type": "string" } },
+          { "name": "entity_type",     "in": "query", "required": true,  "schema": { "type": "string" } },
+          { "name": "entity_id",       "in": "query", "required": true,  "schema": { "type": "string" } },
+          { "name": "action",          "in": "query", "required": true,  "schema": { "type": "string" } },
+          { "name": "decision",        "in": "query", "required": true,  "schema": { "type": "string", "enum": ["APPROVE", "REJECT", "QUARANTINE", "ESCALATE_TO_HUMAN"] } },
+          { "name": "llm_reasoning",   "in": "query", "required": true,  "schema": { "type": "string" } },
+          { "name": "decision_detail", "in": "query", "required": false, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Audit entry created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "auditId": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/quarantine_record": {
+      "post": {
+        "summary": "Quarantine a record that requires human review before Salesforce sync",
+        "description": "Used for QUARANTINE decisions — record is held pending human approval.",
+        "operationId": "quarantine_record",
+        "parameters": [
+          { "name": "entity_id",     "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "source_system", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "reason",        "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "payload_json",  "in": "query", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Quarantine result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "quarantined":  { "type": "boolean" },
+                    "entityId":     { "type": "string" },
+                    "quarantineId": { "type": "string" },
+                    "reason":       { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/send_notification": {
+      "post": {
+        "summary": "Send a notification to a Slack channel based on severity",
+        "description": "Use for REJECT, QUARANTINE, and ESCALATE decisions to alert the data team.",
+        "operationId": "send_notification",
+        "parameters": [
+          { "name": "channel",  "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "severity", "in": "query", "required": true, "schema": { "type": "string", "enum": ["CRITICAL", "HIGH", "WARNING", "INFO"] } },
+          { "name": "message",  "in": "query", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Notification result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sent":     { "type": "boolean" },
+                    "channel":  { "type": "string" },
+                    "severity": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/escalate_to_human": {
+      "post": {
+        "summary": "Escalate a critical data conflict to a human data steward via Jira and Slack DM",
+        "description": "Use for ESCALATE_TO_HUMAN decisions. Creates a Jira ticket and sends a Slack DM to the assigned data steward.",
+        "operationId": "escalate_to_human",
+        "parameters": [
+          { "name": "issue_title", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "description", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "assignee",    "in": "query", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Escalation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "escalated":    { "type": "boolean" },
+                    "jiraTicketId": { "type": "string" },
+                    "assignee":     { "type": "string" },
+                    "message":      { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
